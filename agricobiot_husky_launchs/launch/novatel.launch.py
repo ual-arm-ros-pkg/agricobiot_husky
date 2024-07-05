@@ -29,8 +29,8 @@ def generate_launch_description():
                 "ntrip_server": "www.euref-ip.net",
                 "ntrip_port": "2101",
                 "ntrip_mount_point": "ALME00ESP0",
-                "ntrip_user": "user",
-                "ntrip_password": "pass",
+                "ntrip_user": os.environ["RTK_USER"],
+                "ntrip_password": os.environ["RTK_PASS"],
                 "novatel_init_azimuth": "0.0 25.0",
             }]
     )
