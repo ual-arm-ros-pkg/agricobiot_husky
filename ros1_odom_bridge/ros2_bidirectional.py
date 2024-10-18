@@ -13,16 +13,7 @@ ODOM_PORT = 5000
 CMD_VEL_HOST = '192.168.131.1'  # IP of ROS1 machine
 CMD_VEL_PORT = 5001
 TF_PORT = 5002
-
-def send_socket_data(data, host, port):
-    """Helper function to send data via socket."""
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.connect((host, port))
-        s.sendall(data.encode('utf-8'))
-        s.close()
-    except Exception as e:
-        print(f"Socket send failed: {str(e)}")
+BUFFER_SIZE = 4096
 
 class OdomPublisher(Node):
     def __init__(self):
@@ -32,23 +23,32 @@ class OdomPublisher(Node):
         self.odom_publisher = self.create_publisher(Odometry, '/odometry', 10)
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
         
-        # Socket listeners for odometry and TF
+        # Create sockets once for odometry and TF reception
+        self.odom_socket = self.create_socket(ODOM_PORT)
+        self.tf_socket = self.create_socket(TF_PORT)
+
+        # Create timers to periodically check for odometry and TF data
         self.create_timer(0.1, self.receive_odometry)
         self.create_timer(0.05, self.receive_tf)
 
-        # Subscribe to /cmd_vel and send it to ROS1
+        # Subscribe to /cmd_vel and send the data to ROS1
         self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10)
 
-    def receive_odometry(self):
-        """Receive odometry data from ROS1."""
+    def create_socket(self, port):
+        """Create a socket for receiving data on a specified port."""
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.bind(('0.0.0.0', ODOM_PORT))
+        s.bind(('0.0.0.0', port))
         s.listen(1)
-        conn, addr = s.accept()
-        data = conn.recv(4096)
-        conn.close()
-        if data:
-            try:
+        s.setblocking(False)  # Non-blocking mode for efficient polling
+        return s
+
+    def receive_odometry(self):
+        """Receive and process odometry data from ROS1."""
+        try:
+            conn, _ = self.odom_socket.accept()
+            data = conn.recv(BUFFER_SIZE)
+            conn.close()
+            if data:
                 odom_dict = yaml.safe_load(data)
                 odom_msg = Odometry()
                 odom_msg.header.stamp = self.get_clock().now().to_msg()
@@ -68,19 +68,16 @@ class OdomPublisher(Node):
                 odom_msg.twist.twist.angular.z = odom_dict['twist']['angular']['z']
 
                 self.odom_publisher.publish(odom_msg)
-            except Exception as e:
-                self.get_logger().error(f"Failed to process odometry data: {str(e)}")
+        except socket.error:
+            pass  # No data received, continue without blocking
 
     def receive_tf(self):
         """Receive and broadcast TF data from ROS1."""
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.bind(('0.0.0.0', TF_PORT))
-        s.listen(1)
-        conn, addr = s.accept()
-        data = conn.recv(4096)
-        conn.close()
-        if data:
-            try:
+        try:
+            conn, _ = self.tf_socket.accept()
+            data = conn.recv(BUFFER_SIZE)
+            conn.close()
+            if data:
                 tf_dict = yaml.safe_load(data)
                 tf_msg = TransformStamped()
                 tf_msg.header.stamp = self.get_clock().now().to_msg()
@@ -95,11 +92,11 @@ class OdomPublisher(Node):
                 tf_msg.transform.rotation.w = tf_dict['transform']['rotation']['w']
 
                 self.tf_broadcaster.sendTransform(tf_msg)
-            except Exception as e:
-                self.get_logger().error(f"Failed to process TF data: {str(e)}")
+        except socket.error:
+            pass  # No data received, continue without blocking
 
     def cmd_vel_callback(self, msg):
-        """Send /cmd_vel from ROS2 to ROS1."""
+        """Send /cmd_vel from ROS2 to ROS1 via socket."""
         cmd_vel_dict = {
             'linear': {
                 'x': msg.linear.x,
@@ -113,7 +110,13 @@ class OdomPublisher(Node):
             }
         }
         cmd_vel_yaml = yaml.dump(cmd_vel_dict)
-        send_socket_data(cmd_vel_yaml, CMD_VEL_HOST, CMD_VEL_PORT)
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.connect((CMD_VEL_HOST, CMD_VEL_PORT))
+            s.sendall(cmd_vel_yaml.encode('utf-8'))
+            s.close()
+        except Exception as e:
+            self.get_logger().error(f"Failed to send /cmd_vel data to ROS1: {str(e)}")
 
 def main(args=None):
     rclpy.init(args=args)
