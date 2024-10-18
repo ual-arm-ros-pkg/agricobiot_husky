@@ -33,6 +33,7 @@ def odom_callback(odom_data):
                 'stamp': str(odom_data.header.stamp),
                 'frame_id': odom_data.header.frame_id
             },
+            'child_frame_id': odom_data.child_frame_id,
             'pose': {
                 'position': {
                     'x': odom_data.pose.pose.position.x,

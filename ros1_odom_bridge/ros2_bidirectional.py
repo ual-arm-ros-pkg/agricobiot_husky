@@ -53,6 +53,7 @@ class OdomPublisher(Node):
                 odom_msg = Odometry()
                 odom_msg.header.stamp = self.get_clock().now().to_msg()
                 odom_msg.header.frame_id = odom_dict['header']['frame_id']
+                odom_msg.child_frame_id = odom_dict['child_frame_id']
                 odom_msg.pose.pose.position.x = odom_dict['pose']['position']['x']
                 odom_msg.pose.pose.position.y = odom_dict['pose']['position']['y']
                 odom_msg.pose.pose.position.z = odom_dict['pose']['position']['z']
